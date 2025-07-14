@@ -1,0 +1,78 @@
+name: Build and Publish Nuget Packages
+
+on:
+  push:
+    branches:
+      - main # Paketleri yayınlamak istediğiniz dallar
+      - dev
+    paths:
+      - '**/src/**/*.csproj'
+      - 'gas.sln'
+      - '.nuget/Nuget.config'
+
+jobs:
+  publish:
+    runs-on: windows-latest # GAS projesi Windows'ta build olduğu için Windows Runner kullanıyoruz
+
+    env:
+      PROJECT_NAME: gas.sln
+      GAS_FOLDER: GAS
+      BUILD_MAJOR: 3 # Rakfile'dan alacağınız değer
+      BUILD_MINOR: 7 # Rakfile'dan alacağınız değer
+      BUILD_NUMBER: ${{ github.run_number }} # GitHub Actions'ın build numarası
+      LONG_VER: ${{ env.BUILD_MAJOR }}.${{ env.BUILD_MINOR }}.${{ github.run_number }}
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '6.0.x' # Projenizin kullandığı .NET sürümünü buraya yazın
+
+    - name: Restore NuGet Packages
+      run: |
+        cd ${{ env.GAS_FOLDER }}
+        nuget restore ${{ env.PROJECT_NAME }} -ConfigFile ${{ env.NUGET_CONFIG_FILE }}
+      env:
+        NUGET_CONFIG_FILE: .nuget\Nuget.config
+
+    - name: Build Projects and Pack Nuget Packages
+      run: |
+        cd ${{ env.GAS_FOLDER }}
+        $NUGET_PUBLISH_FOLDER = "$($env:GITHUB_WORKSPACE)\Publish"
+        if (-not (Test-Path $NUGET_PUBLISH_FOLDER)) {
+            New-Item -ItemType Directory -Path $NUGET_PUBLISH_FOLDER
+        }
+
+        # rakefile.rb'den alınan NUGET_PKGS listesini buraya manuel olarak aktarın
+        $nugetProjects = @(
+            "src/common/domainmodel/domainmodel.csproj",
+            "src/common/commonservices/commonservices.csproj",
+            "src/common/commonapis/commonapis.csproj",
+            "src/common/HealthCheck/HealthCheck.csproj",
+            "src/frontend/FrontendCustomization/FrontendCustomization.csproj",
+            "src/services/ServiceCustomization/ServiceCustomization.csproj",
+            "src/data/ConfigDataAccess/ConfigDataAccess.csproj",
+            "test/UnitTest.ConfigDataAccess/UnitTest.ConfigDataAccess.csproj",
+            "test/UnitTest.Common/UnitTest.Common.csproj",
+            "src/plugin/DefaultPlugins/DefaultPlugins.csproj",
+            "src/plugin/Definitions/Definitions.csproj",
+            "src/common/ReportEngines.Definitions/ReportEngines.Definitions.csproj"
+        )
+
+        foreach ($projPath in $nugetProjects) {
+            Write-Host "Packing $projPath..."
+            dotnet pack $projPath --configuration Release --output "$NUGET_PUBLISH_FOLDER" /p:Version=${{ env.LONG_VER }}
+        }
+      env:
+        GAS_FOLDER: GAS
+
+    - name: Publish Nuget Packages to GitHub Packages
+      run: |
+        cd ${{ env.GAS_FOLDER }}
+        $NUGET_PUBLISH_FOLDER = "$($env:GITHUB_WORKSPACE)\Publish"
+        # -Source "github" kısmı Nuget.config'deki `<add key="github"` ile eşleşmeli
+        # -ApiKey olarak GitHub Secret'ınızı kullanıyoruz, bu sayede token güvenli kalıyor
+        nuget push "$NUGET_PUBLISH_FOLDER\*.nupkg" -Source "github" -ApiKey ${{ secrets.NUGET_GITHUB_TOKEN }} -Verbosity normal

@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<package >
+  <metadata>
+    <id>MyTestPackage</id>
+    <version>1.0.0</version>
+    <authors>Yasin Doganguzel</authors>
+    <description>This is a test NuGet package</description>
+  </metadata>
+</package>
